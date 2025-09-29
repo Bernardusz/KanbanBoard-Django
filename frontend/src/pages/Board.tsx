@@ -18,6 +18,8 @@ import {
 } from '@dnd-kit/sortable'
 
 import { CSS } from '@dnd-kit/utilities'
+import { useParams } from 'react-router-dom'
+import api from '../axiosConfig'
 
 type task = {
     id: number,
@@ -93,7 +95,7 @@ const Column = ({columnData}: {columnData: column}) => {
 }
 
 
-const Board = ({boardData, setBoard, setIsBoard}: {boardData: board, setBoard:React.Dispatch<React.SetStateAction<board>>, setIsBoard:React.Dispatch<React.SetStateAction<boolean>>}) => {
+const Board = ({boardData, setBoard, setIsBoard}: {boardData: board | null, setBoard:React.Dispatch<React.SetStateAction<board | null>>, setIsBoard:React.Dispatch<React.SetStateAction<boolean>>}) => {
     const [activeTask, setActiveTask] = useState<task | null>(null)
     function parseId(id: string){
         const [type, num] = id.split("-");
@@ -101,12 +103,13 @@ const Board = ({boardData, setBoard, setIsBoard}: {boardData: board, setBoard:Re
     }
     function handleDragStart(event: DragStartEvent){
         const {id: activeNum} = parseId(String(event.active.id))
-        const found = boardData.columns.flatMap(column => column.tasks).find(task => task.id == activeNum);
+        const found = boardData?.columns.flatMap(column => column.tasks).find(task => task.id == activeNum);
         setActiveTask(found ?? null);
     }
 
     function handleDragEnd(event: DragEndEvent) {
         // --
+        if (!boardData) return;
         const {active, over} = event; // - This get what is going on now, the task and where did it get dropped
         setActiveTask(null);
         if (!over) return;
@@ -138,8 +141,8 @@ const Board = ({boardData, setBoard, setIsBoard}: {boardData: board, setBoard:Re
             const newTasks = arrayMove(sourceColumn.tasks, oldIndex, newIndex);
 
             setBoard(prev => ({
-                ...prev,
-                columns: prev.columns.map(column =>
+                ...prev!,
+                columns: prev!.columns.map(column =>
                     column.id === sourceColumn.id ? {...column, tasks: newTasks} : column
                 ),
             }));
@@ -164,8 +167,9 @@ const Board = ({boardData, setBoard, setIsBoard}: {boardData: board, setBoard:Re
             newTargetTasks.splice(newIndex, 0, movedTask);
 
             setBoard(prev => ({
-                ...prev,
-                columns: prev.columns.map(column => {
+                
+                ...prev!,
+                columns: prev!.columns.map(column => {
                     if (column.id === sourceColumn.id) return {...column, tasks: newSourceTasks};
                     if (column.id === targetColumn.id) return {...column, tasks: newTargetTasks};
                     return column;
@@ -174,8 +178,22 @@ const Board = ({boardData, setBoard, setIsBoard}: {boardData: board, setBoard:Re
         }
 }
 
-    
+    if (!boardData) {
+        return (
+            <div className="flex flex-col justify-center items-center h-full">
+            <p className="text-blue-500 text-xl">No board yet, create one 🐧💀</p>
+            <button 
+                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg"
+                onClick={() => setIsBoard(true)}
+            >
+                Create Board
+            </button>
+            </div>
+        );
+        }
+
     return (
+        
         <div className="rounded-xl flex flex-row min-h-4 h-fit w-full border-2 border-r-2 border-gray-300 justify-center items-center">
             <div className="p-15 rounded-xl flex flex-row items-center justify-center align-middle h-fit w-fit gap-5 border-2 bg-blue-100">
                 <DndContext 
@@ -196,10 +214,11 @@ const Board = ({boardData, setBoard, setIsBoard}: {boardData: board, setBoard:Re
     );
 }
 
-const AddPage = () => {
+const AddPage = ({createBoard}: {createBoard: Function}) => {
     const [title, setTitle] = useState<string>("")
     const [description, setDescription] = useState<string>("")
     const [type, setType] = useState<"toDo" | "inProgress" | "inReview" | "done">("toDo")
+    
     return (
         <div className="flex flex-col w-full min-h-screen justify-center items-center"> {/* The Page */} 
             <div className="p-15 rounded-xl flex flex-col items-center justify-center align-middle h-fit w-xl border-2 bg-blue-100 gap-2"> {/* The box in the middle */}
@@ -227,7 +246,7 @@ const AddPage = () => {
                         </div>
 
                     </div>
-                    <button className="mt-2 bg-blue-500 p-2 rounded-md" >Login</button>
+                    <button className="mt-2 bg-blue-500 p-2 rounded-md" onClick={() => createBoard(title, description)}>Create Board</button>
                 </div>
             </div>
             <button className="mt-2 bg-blue-500 p-2 rounded-md">Back</button>
@@ -236,27 +255,50 @@ const AddPage = () => {
 }
 
 const BoardPage = () => {
+    const { id } = useParams<{ id:string }>();
     const [isBoard, setIsBoard] = useState<boolean>(true);
-    const [board, setBoard] = useState<board>({
-    id: 1,
-    title: "My Kanban",
-    description: "",
-    columns: [
-        { id: 1, title: "Todo", position: 1, tasks: [{ id: 1, title: "Learn React", position: 1, created_at: "22-9-2010", description: "jdfhkdsjhfs" }, 
-                                                     { id: 2, title: "Debug", position: 2, created_at: "22-9-2010", description: "jdfhkdsjhfs" }] },
-        { id: 2, title: "Doing", position: 2, tasks: [{ id: 3, title: "Make UI", position: 1, created_at:"22-9-2010", description: ""}] },
-        { id: 3, title: "Review", position: 3, tasks: [{ id: 4, title: "Make UI", position: 1, created_at:"22-9-2010", description: ""}] },
-        { id: 4, title: "Done", position: 4, tasks: [{ id: 5, title: "Make UI", position: 1, created_at:"22-9-2010", description: ""},
-                                                     { id: 6, title: "Make UI", position: 1, created_at:"22-9-2010", description: ""}
-        ] },
-    ],
-    });
+    const [board, setBoard] = useState<board | null>(null);
+
+    const tokenLocal = localStorage.getItem("access_token");
+    const tokenSession = sessionStorage.getItem("access_token");
+    const token = tokenLocal || tokenSession;
+
+    const fetchBoard = async () => {
+        const response = await api.get(`/board/${id}`, {
+            headers: {Authorization: `Bearer ${token}`}
+        });
+        setBoard(response.data);
+    };
+
+    const addBoard = async (title:string, description:string) => {
+        const respone = await api.post("/board/", 
+            { title, description }, 
+            { headers: {Authorization: `Bearer ${token}`} });
+        fetchBoard();
+    }
+
+    
+
+    // ({
+    // id: 1,
+    // title: "My Kanban",
+    // description: "",
+    // columns: [
+    //     { id: 1, title: "Todo", position: 1, tasks: [{ id: 1, title: "Learn React", position: 1, created_at: "22-9-2010", description: "jdfhkdsjhfs" }, 
+    //                                                  { id: 2, title: "Debug", position: 2, created_at: "22-9-2010", description: "jdfhkdsjhfs" }] },
+    //     { id: 2, title: "Doing", position: 2, tasks: [{ id: 3, title: "Make UI", position: 1, created_at:"22-9-2010", description: ""}] },
+    //     { id: 3, title: "Review", position: 3, tasks: [{ id: 4, title: "Make UI", position: 1, created_at:"22-9-2010", description: ""}] },
+    //     { id: 4, title: "Done", position: 4, tasks: [{ id: 5, title: "Make UI", position: 1, created_at:"22-9-2010", description: ""},
+    //                                                  { id: 6, title: "Make UI", position: 1, created_at:"22-9-2010", description: ""}
+    //     ] },
+    // ],
+    // });
     return (
         <div>
             { isBoard ? (
                 <Board boardData={board} setBoard={setBoard} setIsBoard={() => setIsBoard(false)}/>
             ) : (
-                <AddPage/>
+                <AddPage createBoard={addBoard}/>
             )
 
             }
