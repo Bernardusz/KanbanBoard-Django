@@ -214,7 +214,7 @@ const Board = ({boardData, setBoard, setIsBoard}: {boardData: board | null, setB
     );
 }
 
-const AddPage = ({createBoard}: {createBoard: Function}) => {
+const AddPage = ({createBoard}: {createBoard: (title: string, description:string) => Promise<void>}) => {
     const [title, setTitle] = useState<string>("")
     const [description, setDescription] = useState<string>("")
     const [type, setType] = useState<"toDo" | "inProgress" | "inReview" | "done">("toDo")
